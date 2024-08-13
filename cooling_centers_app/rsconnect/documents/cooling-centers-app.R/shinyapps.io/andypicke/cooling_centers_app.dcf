@@ -1,0 +1,12 @@
+name: cooling_centers_app
+title: cooling_centers_app
+username: andypicke
+account: andypicke
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 12432288
+bundleId: 8966773
+url: https://andypicke.shinyapps.io/cooling_centers_app/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE

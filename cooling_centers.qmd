@@ -25,10 +25,12 @@ editor: source
 # Introduction
 
 -   Heatwaves are becoming more common (source?)
--   During extreme heat waves like we had a few weeks ago, having access to cooling centers is very important especially for those who cannot afford air conditioning.
--   Denver opens up its rec centers as cooling centers during heat waves (source).
+-   During extreme heat waves like we had a few weeks ago [article](https://www.denver7.com/weather/weather-news/denver-heat-wave-heres-when-and-where-its-been-the-hottest-in-colorado) having access to cooling centers is very important especially for those who cannot afford air conditioning.
+-   Denver opens up its rec centers as cooling centers during heat waves [source](https://www.denvergov.org/Government/Agencies-Departments-Offices/Agencies-Departments-Offices-Directory/Public-Health-Environment/News/2024/Cooling-Centers-Open-August-4).
 
 # Goal
+
+[Denver Open Data Catalog](https://opendata-geospatialdenver.hub.arcgis.com/)
 
 -   Identify locations/areas/populations in Denver that have lower or no access to cooling centers, in order to inform placement of additional cooling resources for these populations.
 

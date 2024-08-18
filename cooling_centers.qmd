@@ -22,83 +22,78 @@ theme:
 editor: source
 ---
 
+
 # Introduction
 
--   Heatwaves are becoming more common (source?)
--   During extreme heat waves like we had a few weeks ago [article](https://www.denver7.com/weather/weather-news/denver-heat-wave-heres-when-and-where-its-been-the-hottest-in-colorado) having access to cooling centers is very important especially for those who cannot afford air conditioning.
--   Denver opens up its rec centers as cooling centers during heat waves [source](https://www.denvergov.org/Government/Agencies-Departments-Offices/Agencies-Departments-Offices-Directory/Public-Health-Environment/News/2024/Cooling-Centers-Open-August-4).
+The [heat wave](https://www.denver7.com/weather/weather-news/denver-heat-wave-heres-when-and-where-its-been-the-hottest-in-colorado) in Colorado a few weeks ago motivated me to think about access to air conditioning for people who cannot afford it at their own home or apartment. During heat waves Denver [Denver opens up its recreation centers](https://www.denvergov.org/Government/Agencies-Departments-Offices/Agencies-Departments-Offices-Directory/Public-Health-Environment/News/2024/Cooling-Centers-Open-August-4) as cooling centers. I decided to use geospatial analysis to try to figure out how many people in Denver have access to a cooling center.
 
 # Goal
 
-[Denver Open Data Catalog](https://opendata-geospatialdenver.hub.arcgis.com/)
-
--   Identify locations/areas/populations in Denver that have lower or no access to cooling centers, in order to inform placement of additional cooling resources for these populations.
+-   The goal of this analysis is to identify locations/areas/populations in Denver that have lower or no access to cooling centers, in order to inform placement of additional cooling resources for these populations.
 
 ## Methods Overview:
 
 -   Obtain and map Denver cooling center locations.
--   Compute isochrones from each cooling center (the area that can be reached by walking/driving in a certain time).
--   Identity areas that are not within these isochrones.
+-   Compute isochrones (the area that can be reached by walking/driving in a certain time) from each cooling center.
+-   Identity areas that do not have access to cooling centers, defined here as not being inside any of the isochrones.
+
+```{r}
+#| message: false
+#| label: Load Libraries
+#| code-fold: true
+#| code-summary: Load R libraries for analysis
+
+library(mapboxapi) # compute isocrhone/isodistance 
+library(leaflet) # mapping
+library(sf) # working with shapefiles
+library(dplyr)
+library(janitor)
+library(glue)
+library(tidycensus) # census tracts
+library(tigris) # county shapefile
+options(tigris_use_cache = TRUE)
+```
 
 # Data
 
 ## Denver Cooling Centers
 
-Downloaded shapefile containing all Denver rec centers from : https://opendata-geospatialdenver.hub.arcgis.com/datasets/9470613562274d3a80c1fd4d976df016_92/explore
+I found a data set containing the location of all Denver recreation centers on the [Denver Open Data Catalog](https://opendata-geospatialdenver.hub.arcgis.com/).
 
-## County boundary and census tracts from tigris
-
-```{r}
-#| message: false
-#| label: Load Libraries
-
-library(mapboxapi) # compute isocrhone/isodistance 
-library(leaflet) # mapping
-library(sf) # working with shapefiles
-library(here)
-library(dplyr)
-library(janitor)
-library(glue)
-library(tigris)
-options(tigris_use_cache = TRUE)
-library(tidycensus)
-```
-
-## Read shapefile with Rec Centers
+The Denver recreation centers shapefile was read into R with the {sf} package [@sf].
 
 ```{r}
+#| label: Load cooling centers
+#| code-summary: Load cooling centers
 
 # rec shape file crs = 2877 for Colorado; use for calculations later?
-shp_file <- here("data", "ODC_PARK_RECCENTER_P_-1008034318397091855", "PARK_RECCENTER_P.shp")
+shp_file <- "./data/ODC_PARK_RECCENTER_P_-1008034318397091855/PARK_RECCENTER_P.shp"
 
 rec_shp <- sf::read_sf(shp_file) |>
   sf::st_transform(4326) |>
   janitor::clean_names()
 
 head(rec_shp)
+
 ```
 
-## Counties and census data
+## County boundary and census data
 
-### County shapefile
-
-Get Denver county shapefile with {tigris}.
+To calculate the population within/outside range of cooling centers, I decided to use census tracts from the US census. I obtained shapefiles for census tracts and their population using the {tidycensus} R package [@tidycensus]. The shapefile for the entire county (without population) was downloaded using the {tigris} package [@tigris].
 
 ```{r}
-#| label: download-counties
+#| label: download-denver-county
 #| output: false
+#| code-summary: Get county boundary
+
 counties <- tigris::counties(state = "CO",)
 denver <- counties |> filter(NAME == "Denver")
 
 ```
 
-### Census tracts
-
-Get Denver census tracts and their populations with {tidycensus}
-
 ```{r}
 #| label: get-census-tracts
-#| 
+#| code-summary: Get census tracts
 
 den_tracts <- get_decennial(
   geography = "tract", 
@@ -111,9 +106,14 @@ den_tracts <- get_decennial(
 
 ```
 
+There are `r nrow(den_tracts)` tracts, with a total population of `r scales::comma(sum(den_tracts$value))`.
+
+The data sets are visualized on an interactive map (figure @fig-denver-recs-map) using the {leaflet} package [@leaflet].
+
 ```{r}
 #| label: fig-denver-recs-map
 #| fig-cap: Map of Denver recreation centers (blue markers) and census tracts (black/gray polygons).
+#| code-summary: Plot map of data
 
 leaflet() |>
   addTiles() |>
@@ -131,7 +131,7 @@ leaflet() |>
                 opacity = 1.0,
                 bringToFront = TRUE,
                 sendToBack = TRUE)  
-              )
+  )
 
 ```
 
@@ -139,11 +139,12 @@ leaflet() |>
 
 ## Compute isochrones
 
-Compute walking isochrones from each rec center location:
+I used the {mapboxapi} package [@mapboxapi] to calculate walking isochrones from each recreation center location. I chose a 20 minute walk as reasonable access.
 
 ```{r}
 #| label: calc-isochrones
 #| output: false
+#| code-summary: Calculate isochrones
 
 time_minutes <- 20
 
@@ -156,35 +157,36 @@ isos <- mapboxapi::mb_isochrone(
 
 ```
 
+@fig-map-isochrones is an interactive map that shows all of the recreation centers and isochrones, as well as census tracts.
+
 ```{r}
 #| label: fig-map-isochrones
-#| fig-cap: Map of Denver area with x-minute walking isochrones from Denver recreation centers.
-
-# fitBounds_from_sf <- function(map, sf_object){
-#   bbox <- unname(sf::st_bbox(sf_object))
-#   leaflet::fitBounds(map, bbox[1], bbox[2], bbox[3], bbox[4])
-# }
+#| fig-cap: Interactive Map of Denver area with 20-minute walking isochrones from Denver recreation centers
+#| code-summary: Map isochrones
 
 leaflet() |>
   addProviderTiles(providers$CartoDB.Voyager) |>
   addPolygons(data = den_tracts, fillOpacity = 0.2, color = "black", weight = 1, label = ~NAME) |>
   addPolygons(data = isos, label = ~id) |>
   addMarkers(data = rec_shp,
-             label = ~rec_name) #|>
-#  fitBounds_from_sf(denver)
-#  leaflet::fitBounds(bbox[1], bbox[2], bbox[3], bbox[4])
-
+             label = ~rec_name) 
 
 ```
 
-## Calculate Areas/population in/outside cooling center isochrones
+## Calculate Access to Cooling Centers
+
+The next step was to calculate what area and population are within/outside these isochrones. I tried two methods: one is simpler, and one is more complex but probably more accurate.
 
 ### Simpler method
 
--   Calculate union of all the isochrones
--   Find which census tracts do not intersect cooling isochrones at all
+The simpler method is to keep census tracts whole and find which ones intersect any of the isochrones:
+
+-   Calculate union of all the isochrones (using st_union() from the {sf} package)
+-   Find which census tracts do not intersect isochrones at all (using st_join() from {sf})
 
 ```{r}
+#| label: calc-pop-method1
+#| code-summary: Method 1
 
 # Union of all isochrones
 isos_union <- sf::st_union(isos, by_feature = FALSE) |> sf::st_as_sf()
@@ -197,80 +199,51 @@ tracts_iso_join <- sf::st_join(den_tracts, isos_union)
 # find which tracts were not in isochrones (join is NA)
 not_in <- tracts_iso_join |> filter(is.na(index))
 
-# gives same results as above
-#x <- sf::st_join(den_tracts, isos)
-#not_in <- x |> filter(is.na(time))
+#glue::glue('There are {nrow(not_in)} census tracts in Denver (out of total {nrow(den_tracts)}) that are not in range of a cooling center. The population of census tracts without access to cooling centers is {sum(not_in$value)}.')
 
 ```
+There are `r nrow(not_in)` census tracts in Denver (out of a total `r nrow(den_tracts)`) that are not in range of a cooling center. The population of census tracts without access to cooling centers is `r scales::comma(sum(not_in$value))`.
 
-```{r}
-
-glue::glue('There are {nrow(not_in)} census tracts in Denver (out of total {nrow(den_tracts)}) that are not in range of a cooling center.')
-
-# X percent of area in Denver is within x minute walk of a cooling center
-
-glue('The population of census tracts without access to cooling centers is {sum(not_in$value)}')
-
-
-```
+@fig-map-all shows the results of this method, with census tracts that do not intersect isochrones shaded in red.
 
 ```{r}
 #| label: fig-map-all
 #| fig-cap: Map of Denver county with census tracts and isochrones from all cooling centers. Census tracts in red do not intersect any of the isochrones.
+#| code-summary: Map method 1
 
 leaflet() |>
   addProviderTiles(providers$CartoDB.Voyager) |>
   addPolygons(data = den_tracts, fillOpacity = 0.2, color = "black", weight = 1, label = ~NAME) |>
   addPolygons(data = not_in, fillOpacity = 0.2, color = "red", weight = 1, label = ~NAME) |>
   addPolygons(data = isos_union, color = "blue", weight = 2, label = "Isochrones")# |>
-#  addMarkers(data = rec_shp,
-#             label = ~rec_name) |>
-#  fitBounds_from_sf(denver)
 
 ```
 
-### More accurate - use Areal interpolation
+### Weighting by Area
+
+The first method is much simpler but probably not very accurate, since some of the census tracts just barely intersect an isochrone. A more complex but more accurate method is to use areal interpolation that considers what *part* of each census tract intersects the isochrones. Note that this method assumes that population is distributed evenly across each census tract.
 
 -   Calculate union of all the isochrones
--   For each tract, compute percent(area) that intersects with isochrones
--   Use that ratio to multiply the total population of the tract, to find population in/out of range.
-
-```{r}
-
-# Example with 1 tract
-
-# tract <- den_tracts[4,]
-# 
-# tract_intersect <- sf::st_intersection(tract, isos_union)
-# 
-# leaflet() |>  addPolygons(data = isos_union, fill = FALSE,color = "blue", weight = 2, label = "Isochrones") |> addPolygons(data = tract_intersect, color = "red") |>
-#   addPolygons(data = tract, color = "black", fill = FALSE)
-# 
-# area_tot <- sf::st_area(tract)
-# area_intersect <- sf::st_area(tract_intersect)
-# perc_intersect <- as.numeric(area_intersect/area_tot*100)
-# perc_area_not_in <- 100-perc_intersect
-# 
-# total_pop <- tract$value
-# pop_out <- perc_area_not_in/100*total_pop
-# 
-
-```
+-   For each tract, compute the percent of area that intersects with isochrones (using st_intersection() from {sf})
+-   Use that ratio to multiply the total population of the tract, to find population in/out.
+-   Sum the population estimates from all the tracts.
 
 ```{r}
 #| output: false
+#| label: calc-intersections-population
+#| code-summary: Method 2
 
 # function to compute perc overlap and weighted population for 1 tract
-calc_pop_out <- function(tract, isos){
+calc_pop_out <- function(tract, isos) {
   
   tract_intersect <- sf::st_intersection(tract, isos)
   
-  if ( nrow(tract_intersect) == 0){return(0)}
+  if ( nrow(tract_intersect) == 0) {return(0)}
   
   area_tot <- sf::st_area(tract)
   area_intersect <- sf::st_area(tract_intersect)
   perc_intersect <- as.numeric(area_intersect/area_tot*100)
-  perc_area_not_in <- 100-perc_intersect
+  perc_area_not_in <- 100 - perc_intersect
   
   total_pop <- tract$value
   pop_out <- perc_area_not_in/100*total_pop
@@ -279,14 +252,11 @@ calc_pop_out <- function(tract, isos){
 
 # apply to each tract (could use *map* function instead of loop? )
 pops_out <- rep(NA, times = nrow(den_tracts))
-for (i in 1:nrow(den_tracts)){
+for (i in 1:nrow(den_tracts)) {
   pops_out[i] <- calc_pop_out(den_tracts[i,], isos_union)
 }
 
-```
 
-```{r}
-#| label: fig-map-final
 
 # Union of all Denver census tracts >> 1 multi-polygon
 tracts_union <- sf::st_union(den_tracts)
@@ -294,42 +264,58 @@ tracts_union <- sf::st_union(den_tracts)
 tracts_isos_intersect <- sf::st_intersection(tracts_union, isos_union)
 tracts_isos_diff <- sf::st_difference(tracts_union, isos_union)
 
-leaflet() |> 
-  addProviderTiles(providers$CartoDB.Voyager) |>
-  addPolygons(data = tracts_isos_intersect, color = "blue", weight = 1, label = "Intersection") |> 
-  addPolygons(data = tracts_isos_diff, color = "red", weight = 1, label = "Difference")
-```
-
-# Conclusion
-
-```{r}
-
 area_tot <- sf::st_area(tracts_union)
 area_in <- sf::st_area(tracts_isos_intersect)
 area_out <- sf::st_area(tracts_isos_diff)
 
-area_in/area_tot*100
-area_out/area_tot*100
+percent_out <- round(area_out/area_tot*100)
+pop_out <- round(sum(pops_out))
+
+#glue('Approximately {round(area_out/area_tot*100)} percent of the area of Denver is not within a 20 minute walk of a cooling center.')
+
+#glue('An estimated {round(sum(pops_out))} people in Denver are not within a 20 minute walk of a cooling center.')
+
 ```
+
+Figure @fig-map-final shows the results of this method. The union of all the isochrones is shown in blue, and the difference (the area not within any isochrones) is shown in blue.
 
 ```{r}
+#| label: fig-map-final
+#| fig-cap: Map of Denver county with census tracts and isochrones from all cooling centers (blue). Area shaded in red does not intersect any of the isochrones.
+#| code-summary: Map method 2
 
-# X percent of area in Denver is within x minute walk of a cooling center
 
-glue('The population of census tracts without access to cooling centers is {round(sum(pops_out))}')
-
-
+leaflet() |> 
+  addProviderTiles(providers$CartoDB.Voyager) |>
+  addPolygons(data = tracts_isos_intersect, 
+              color = "blue", 
+              weight = 1, 
+              label = "Intersection") |> 
+  addPolygons(data = tracts_isos_diff, 
+              color = "red", 
+              weight = 1, 
+              label = "Difference")
 ```
+
+
+# Conclusion
+
+-   20-minute walking isochrones were calculated for all Denver cooling centers (recreation centers).
+-   The area and population not within any of these isochrones was computed.
+-   Approximately `r percent_out` percent of the area of Denver (County) is not within a 20 minute walk of a cooling center.
+-   An estimated `r scales::comma(pop_out)` people in Denver (County) are not within a 20 minute walk of a cooling center.
+
+
 
 ## Caveats/future work
 
-This analysis provides a starting framework and estimate; however there are a lot of assumptions and areas for further research and improvement. Below are some that come to mind:
+This analysis provides a starting framework and estimate; however there are many assumptions and areas for further research and improvement. Below are some that come to mind:
 
--   Areal interpolation assumes that population is evenly distributed across area.
--   Maybe doesn't make sense to include airport area?
--   Some of population has air-conditioning. Future work could incorporate estimates of this (if they exist?).
--   There are probably other "cooling locations" where people can find relief (public libraries, malls etc.?). Future work could attempt to include these locations as well.
--   Difficult to specify what "access" means (ie 20 min walk). It also does not take into account public transit or personal vehicles. Future work could incorporate these (currently mb_isochrone() does not have a public transit mode option).
+-   Areal interpolation assumes that population is evenly distributed across each tract area.
+-   Future work could try to incorporate estimates of how many people have air conditioning in their homes or apartments.
+-   Future work could attempt to also include other cooling locations besides recreation centers (such as public libraries).
+-   It is difficult to specify exactly what "access" to a cooling center means (here I defined it as a 20 minute walk). Future work could also try to take into account public transit (though currently the [Mapbox isochrone API](https://docs.mapbox.com/playground/isochrone/) does not appear to have a public transit mode option).
+- It would be interesting to compare the distribution of cooling centers with data on tree coverage and temperatures. 
 
 # SessionInfo
 
@@ -341,3 +327,5 @@ This analysis provides a starting framework and estimate; however there are a lo
 sessionInfo()
 ```
 :::
+
+# References

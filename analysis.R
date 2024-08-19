@@ -54,8 +54,8 @@ denver <- counties |> filter(NAME == "Denver")
 # load Denver census tracts
 den_tracts <- get_decennial(
   geography = "tract", 
-  variables = "P001001",
-  year = 2010,
+  variables = "P1_001N",
+  year = 2020,
   state = "CO",
   county = "Denver", 
   geometry = TRUE

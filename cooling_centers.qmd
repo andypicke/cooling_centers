@@ -97,8 +97,8 @@ denver <- counties |> filter(NAME == "Denver")
 
 den_tracts <- get_decennial(
   geography = "tract", 
-  variables = "P001001",
-  year = 2010,
+  variables = "P1_001N",
+  year = 2020,
   state = "CO",
   county = "Denver", 
   geometry = TRUE
@@ -112,7 +112,7 @@ The data sets are visualized on an interactive map (figure @fig-denver-recs-map)
 
 ```{r}
 #| label: fig-denver-recs-map
-#| fig-cap: Map of Denver recreation centers (blue markers) and census tracts (black/gray polygons).
+#| fig-cap: Map of Denver recreation centers (blue markers) and 2020 census tracts (black/gray polygons).
 #| code-summary: Plot map of data
 
 leaflet() |>

@@ -44,8 +44,8 @@ rec_shp <- sf::read_sf(shp_file) |>
 # load file with Denver library locations
 libraries <- readRDS(here('data','denver_library_locations.rds'))
 # convert to a sf object
-libs <- libraries |> tidyr::drop_na() |> sf::st_as_sf(coords = c("lib_lng","lib_lat"))
-st_crs(libs) <- 4326
+lib_sf <- libraries |> tidyr::drop_na() |> sf::st_as_sf(coords = c("lib_lng","lib_lat"))
+lib_sf <- `st_crs<-`(lib_sf, 4326) # specify crs
 
 # load county shapefiles
 counties <- tigris::counties(state = "CO",)
@@ -61,18 +61,31 @@ den_tracts <- get_decennial(
   geometry = TRUE
 ) |> st_transform(4326)
 
+glue('There are {nrow(den_tracts)} census tracts with a total population of {sum(den_tracts$value)}')
+
+
 
 #------------------------
 # calculate isochrones
 #------------------------
 time_minutes <- 20
 
-isos <- mapboxapi::mb_isochrone(
+# rec centers
+isos_rec <- mapboxapi::mb_isochrone(
   location = rec_shp,
   profile = "walking",
   time = time_minutes,
   id_column = "rec_name"
 )
+
+# libraries
+isos_lib <- mapboxapi::mb_isochrone(
+  location = lib_sf,
+  profile = "walking",
+  time = time_minutes,
+  id_column = "lib_name"
+)
+
 
 
 #------------------------
@@ -82,15 +95,19 @@ isos <- mapboxapi::mb_isochrone(
 leaflet() |>
   addTiles() |>
   addPolygons(data = den_tracts, fillColor = "grey", color = "black", weight = 1, label = ~NAME) |>
-  addPolygons(data = isos, fillColor = "blue", color = "blue", label = ~id)
+  addPolygons(data = isos_rec, fillColor = "blue", color = "blue", label = ~id) |>
+  addPolygons(data = isos_lib, fillColor = "magenta", color = "magenta", label = ~id)
 
 
 #------------------------
 # calculate the intersection between isochrones and census tracts
 #------------------------
 
-# union of all isochrones
-isos_union <- sf::st_union(isos, by_feature = FALSE) |> sf::st_as_sf()
+# union of all rec center isochrones
+isos_rec_union <- sf::st_union(isos_rec, by_feature = FALSE) |> sf::st_as_sf()
+
+# union of all library isochrones
+isos_lib_union <- sf::st_union(isos_lib, by_feature = FALSE) |> sf::st_as_sf()
 
 
 # function to compute percent overlap and weighted population for 1 tract
@@ -110,15 +127,24 @@ calc_pop_out <- function(tract, isos) {
   
 }
 
-# apply to each tract 
-pops_out <- rep(NA, times = nrow(den_tracts))
+# apply to each tract for rec centers
+pops_out_rec <- rep(NA, times = nrow(den_tracts))
 for (i in 1:nrow(den_tracts)) {
-  pops_out[i] <- calc_pop_out(den_tracts[i,], isos_union)
+  pops_out_rec[i] <- calc_pop_out(den_tracts[i,], isos_rec_union)
 }
 
-# total population that does not intersect isochrones
-pop_out <- round(sum(pops_out))
+# total population that does not intersect rec center isochrones
+pop_out_rec <- round(sum(pops_out_rec))
 
+
+# apply to each tract for libraries
+pops_out_lib <- rep(NA, times = nrow(den_tracts))
+for (i in 1:nrow(den_tracts)) {
+  pops_out_lib[i] <- calc_pop_out(den_tracts[i,], isos_lib_union)
+}
+
+# total population that does not intersect rec center isochrones
+pop_out_lib <- round(sum(pops_out_lib))
 
 
 #------------------------
@@ -128,16 +154,58 @@ pop_out <- round(sum(pops_out))
 # union of all Denver census tracts (combines into 1 multi-polygon)
 tracts_union <- sf::st_union(den_tracts)
 
-# calculate intersection and difference
-tracts_isos_intersect <- sf::st_intersection(tracts_union, isos_union)
-tracts_isos_diff <- sf::st_difference(tracts_union, isos_union)
+# calculate intersection and difference for rec centers
+tracts_isos_rec_intersect <- sf::st_intersection(tracts_union, isos_rec_union)
+tracts_isos_rec_diff <- sf::st_difference(tracts_union, isos_rec_union)
+
+# calculate intersection and difference for libraries
+tracts_isos_lib_intersect <- sf::st_intersection(tracts_union, isos_lib_union)
+tracts_isos_lib_diff <- sf::st_difference(tracts_union, isos_lib_union)
+
 
 # calculate area in/out
 area_tot <- sf::st_area(tracts_union)
-area_in <- sf::st_area(tracts_isos_intersect)
-area_out <- sf::st_area(tracts_isos_diff)
-percent_out <- round(area_out/area_tot*100)
+area_in_rec <- sf::st_area(tracts_isos_rec_intersect)
+area_out_rec <- sf::st_area(tracts_isos_rec_diff)
+percent_out_rec <- round(area_out_rec/area_tot*100)
 
-glue('Approximately {percent_out} % of the area of Denver county is not within a {time_minutes} minute walk of a cooling center (rec center).')
-glue('Approximately {scales::comma(pop_out)} people in Denver county are not within a {time_minutes} minute walk of a cooling center (rec center)')
+glue('Approximately {percent_out_rec} % of the area of Denver county is not within a {time_minutes} minute walk of a cooling center (rec center).')
+glue('Approximately {scales::comma(pop_out_rec)} people in Denver county are not within a {time_minutes} minute walk of a cooling center (rec center)')
 
+area_out_lib <- sf::st_area(tracts_isos_lib_diff)
+percent_out_lib <- round(area_out_lib/area_tot*100)
+glue('Approximately {percent_out_lib} % of the area of Denver county is not within a {time_minutes} minute walk of a library.')
+glue('Approximately {scales::comma(pop_out_lib)} people in Denver county are not within a {time_minutes} minute walk of a library')
+
+
+# do calcs for rec centers and libraries *combined*
+isos_rec_lib_union <- sf::st_union(isos_rec_union, isos_lib_union)
+
+leaflet() |>
+  addTiles() |>
+  addPolygons(data = isos_rec_lib_union)
+
+tracts_isos_rec_lib_intersect <- sf::st_intersection(tracts_union, isos_rec_lib_union)
+tracts_isos_rec_lib_diff <- sf::st_difference(tracts_union, isos_rec_lib_union)
+
+area_in_rec_lib <- sf::st_area(tracts_isos_rec_lib_intersect)
+area_out_rec <- sf::st_area(tracts_isos_rec_lib_diff)
+percent_out_rec_lib <- round(area_out_rec/area_tot*100)
+
+leaflet() |>
+  addTiles() |>
+  addPolygons(data = tracts_isos_rec_lib_intersect) |>
+  addPolygons(data = tracts_isos_rec_lib_diff, color = "red")
+
+
+# apply to each tract for rec centers AND libraries
+pops_out_rec_lib <- rep(NA, times = nrow(den_tracts))
+for (i in 1:nrow(den_tracts)) {
+  pops_out_rec_lib[i] <- calc_pop_out(den_tracts[i,], isos_rec_lib_union)
+}
+
+# total population that does not intersect rec center isochrones
+pop_out_rec_lib <- round(sum(pops_out_rec_lib))
+
+glue('Approximately {percent_out_rec_lib} % of the area of Denver county is not within a {time_minutes} minute walk of a cooling center (rec center) OR library.')
+glue('Approximately {scales::comma(pop_out_rec_lib)} people in Denver county are not within a {time_minutes} minute walk of a cooling center (rec center) OR library')

@@ -1,0 +1,101 @@
+---
+title: "Explore Denver Library locations"
+format: 
+  html:
+    code-link: true
+    code-fold: true
+    code-tools: true
+    toc: true
+    fig-width: 9
+    fig-height: 7
+    tbl-cap-location: bottom
+theme:
+  light: simplex
+  dark: simplex
+editor: source
+---
+
+
+```{r}
+
+library(here)
+library(leaflet)
+library(sf)
+library(tidycensus)
+library(mapboxapi)
+
+```
+
+- Load file with library locations
+- Made with *scrape_library_locations.R*
+```{r}
+
+libraries <- readRDS(here('data','denver_library_locations.rds'))
+
+lib_sf <- sf::st_as_sf(libraries, coords = c("lib_lng", "lib_lat"))
+lib_sf <- `st_crs<-`(lib_sf, 4326) # specify crs
+
+lib_sf
+```
+
+Get Denver census tracts
+```{r}
+
+# load Denver census tracts
+den_tracts <- get_decennial(
+  geography = "tract", 
+  variables = "P1_001N",
+  year = 2020,
+  state = "CO",
+  county = "Denver", 
+  geometry = TRUE
+) |> st_transform(4326)
+
+
+```
+
+Plot library locations on map
+```{r}
+
+leaflet() |>
+  addProviderTiles(provider = providers$CartoDB.Voyager) |>
+  addPolygons(data = den_tracts, 
+              color = "black", 
+              weight = 1, 
+              fillColor = "gray", 
+              fillOpacity = 0.2, 
+              label = ~NAME) |>
+  addMarkers(data = lib_sf, label = ~lib_name)
+
+```
+
+
+Calculate isocrhones from library locations
+```{r}
+
+time_minutes <- 20
+
+isos_lib <- mapboxapi::mb_isochrone(
+  location = lib_sf,
+  profile = "walking",
+  time = time_minutes,
+  id_column = "lib_name"
+)
+
+isos_lib
+
+
+```
+Plot census tracts and library isochrones
+```{r}
+
+leaflet() |>
+  addProviderTiles(provider = providers$CartoDB.Voyager) |>
+  addPolygons(data = den_tracts, color = "black", weight =1, fillColor = "gray", fillOpacity = 0.2, label = ~NAME) |>
+  #addMarkers(data = lib_sf, label = ~lib_name) |>
+  addPolygons(data = isos_lib, label = ~id)
+
+```
+
+
+

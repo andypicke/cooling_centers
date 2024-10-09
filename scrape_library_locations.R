@@ -73,7 +73,7 @@ leaflet() |>
   addMarkers(data = df, lng = ~lib_lng, lat = ~lib_lat, label = ~lib_name)
 
 # save data
-saveRDS(df, here('data','denver_library_locations.rds'))
+saveRDS(df, here('data/processed/','denver_library_locations.rds'))
 
 # to read data
 #libraries <-readRDS(here('data','denver_library_locations.rds'))

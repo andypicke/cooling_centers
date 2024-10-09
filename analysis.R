@@ -31,60 +31,14 @@ options(tigris_use_cache = TRUE)
 #------------------------
 # load data
 #------------------------
-
-# load shapefile with rec center locations
-# rec shape file crs = 2877 for Colorado
-shp_file <- "./data/ODC_PARK_RECCENTER_P_-1008034318397091855/PARK_RECCENTER_P.shp"
-
-rec_shp <- sf::read_sf(shp_file) |>
-  sf::st_transform(4326) |>
-  janitor::clean_names()
+den_tracts <- readRDS(here('data', 'processed', "Denver_census_tracts.rds") )
 
 
-# load file with Denver library locations
-libraries <- readRDS(here('data','denver_library_locations.rds'))
-# convert to a sf object
-lib_sf <- libraries |> tidyr::drop_na() |> sf::st_as_sf(coords = c("lib_lng","lib_lat"))
-lib_sf <- `st_crs<-`(lib_sf, 4326) # specify crs
-
-# load county shapefiles
-counties <- tigris::counties(state = "CO",)
-denver <- counties |> filter(NAME == "Denver")
-
-# load Denver census tracts
-den_tracts <- get_decennial(
-  geography = "tract", 
-  variables = "P1_001N",
-  year = 2020,
-  state = "CO",
-  county = "Denver", 
-  geometry = TRUE
-) |> st_transform(4326)
-
-glue('There are {nrow(den_tracts)} census tracts with a total population of {sum(den_tracts$value)}')
-
-
-
-#------------------------
-# calculate isochrones
-#------------------------
 time_minutes <- 20
 
-# rec centers
-isos_rec <- mapboxapi::mb_isochrone(
-  location = rec_shp,
-  profile = "walking",
-  time = time_minutes,
-  id_column = "rec_name"
-)
+isos_rec <- readRDS(here('data', 'processed', paste0("isos_rec_", time_minutes, "mins.rds")) )
 
-# libraries
-isos_lib <- mapboxapi::mb_isochrone(
-  location = lib_sf,
-  profile = "walking",
-  time = time_minutes,
-  id_column = "lib_name"
-)
+isos_lib <- readRDS(here('data',  'processed', paste0("isos_lib_", time_minutes, "mins.rds")) )
 
 
 
@@ -97,6 +51,7 @@ leaflet() |>
   addPolygons(data = den_tracts, fillColor = "grey", color = "black", weight = 1, label = ~NAME) |>
   addPolygons(data = isos_rec, fillColor = "blue", color = "blue", label = ~id) |>
   addPolygons(data = isos_lib, fillColor = "magenta", color = "magenta", label = ~id)
+
 
 
 #------------------------
@@ -115,7 +70,8 @@ calc_pop_out <- function(tract, isos) {
   
   tract_intersect <- sf::st_intersection(tract, isos)
   
-  if ( nrow(tract_intersect) == 0) {return(0)}
+  # tract does not intersect any isos; all of population is "out"
+  if ( nrow(tract_intersect) == 0) {return(tract$value)}
   
   area_tot <- sf::st_area(tract)
   area_intersect <- sf::st_area(tract_intersect)
@@ -136,6 +92,7 @@ for (i in 1:nrow(den_tracts)) {
 # total population that does not intersect rec center isochrones
 pop_out_rec <- round(sum(pops_out_rec))
 
+glue('Population of {pop_out_rec} is not within range of rec centers')
 
 # apply to each tract for libraries
 pops_out_lib <- rep(NA, times = nrow(den_tracts))
@@ -143,8 +100,10 @@ for (i in 1:nrow(den_tracts)) {
   pops_out_lib[i] <- calc_pop_out(den_tracts[i,], isos_lib_union)
 }
 
-# total population that does not intersect rec center isochrones
+# total population that does not intersect library isochrones
 pop_out_lib <- round(sum(pops_out_lib))
+
+glue('Population of {pop_out_lib} is not within range of libraries')
 
 
 #------------------------
@@ -181,8 +140,10 @@ glue('Approximately {scales::comma(pop_out_lib)} people in Denver county are not
 # do calcs for rec centers and libraries *combined*
 isos_rec_lib_union <- sf::st_union(isos_rec_union, isos_lib_union)
 
+# map union of rec and library isochrones
 leaflet() |>
   addTiles() |>
+  addPolygons(data = den_tracts, fillColor = "grey", color = "black", weight = 1, label = ~NAME) |>
   addPolygons(data = isos_rec_lib_union)
 
 tracts_isos_rec_lib_intersect <- sf::st_intersection(tracts_union, isos_rec_lib_union)
